@@ -1,6 +1,6 @@
 # Bird flocking
 
-Browser-based simulation demonstrating emergent flocking behavior, often referred to as "boids". It visualizes a group of agents (birds) following a set of simple rules, resulting in complex, life-like flock movement patterns, using HTML, CSS (with Tailwind CSS for styling), and JavaScript for the logic and rendering on an HTML Canvas.
+Browser-based simulation demonstrating emergent flocking behavior, referred to as "boids", with group of agents (birds) following a set of simple rules, resulting in complex, life-like flock movement patterns, using HTML, CSS (with Tailwind CSS for styling), and JavaScript for the logic and rendering on an HTML Canvas.
 
 ![image](https://github.com/user-attachments/assets/e2df018f-ff8d-4b7e-9acf-4b5c29701986)
 
