@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bird Flocking Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Basic styling for the body and canvas */
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars */
+            background-color: #f0f9ff; /* Light sky blue background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        canvas {
+            display: block;
+            background-color: #e0f2fe; /* Slightly darker sky blue */
+            border-radius: 0.5rem; /* Rounded corners */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+        }
+        /* Style for the controls container */
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+        }
+        #controls label, #controls span {
+             margin: 0 10px;
+        }
+    </style>
+</head>
+<body class="bg-blue-50">
+
+    <div id="controls" class="text-gray-700">
+        <label for="birdCount">Birds: <span id="birdCountValue">100</span></label>
+        <input type="range" id="birdCount" min="10" max="300" value="100" class="align-middle">
+    </div>
+
+    <canvas id="birdCanvas"></canvas>
+
+    <script>
+        // Get canvas and context
+        const canvas = document.getElementById('birdCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Simulation Parameters ---
+        let numBirds = 100; // Initial number of birds
+        const birds = []; // Array to hold bird objects
+        const maxSpeed = 2; // Maximum speed of a bird
+        const minSpeed = 0.5; // Minimum speed
+        const perceptionRadius = 50; // How far a bird can 'see' other birds
+        const avoidanceRadius = 20; // How close is too close
+        const alignmentForce = 0.03; // Strength of alignment behavior
+        const cohesionForce = 0.005; // Strength of cohesion behavior
+        const separationForce = 0.05; // Strength of separation behavior
+        const edgeMargin = 50; // Distance from edge to start turning back
+        const turnFactor = 0.2; // How sharply birds turn from edges
+
+        // --- Bird Class ---
+        class Bird {
+            constructor(x, y) {
+                // Position vector
+                this.position = { x: x, y: y };
+                // Velocity vector (random initial direction)
+                this.velocity = {
+                    x: (Math.random() - 0.5) * maxSpeed,
+                    y: (Math.random() - 0.5) * maxSpeed
+                };
+                // Acceleration vector (starts at zero)
+                this.acceleration = { x: 0, y: 0 };
+                // Add a slight random variation to size for visual interest
+                this.size = 8 + Math.random() * 4; // Base size + random variation
+            }
+
+            // Method to update bird's state
+            update(flock) {
+                this.applyFlockingBehaviors(flock);
+                this.avoidEdges();
+
+                // Update velocity based on acceleration
+                this.velocity.x += this.acceleration.x;
+                this.velocity.y += this.acceleration.y;
+
+                // Limit speed
+                const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.y ** 2);
+                if (speed > maxSpeed) {
+                    this.velocity.x = (this.velocity.x / speed) * maxSpeed;
+                    this.velocity.y = (this.velocity.y / speed) * maxSpeed;
+                } else if (speed < minSpeed) {
+                     this.velocity.x = (this.velocity.x / speed) * minSpeed;
+                     this.velocity.y = (this.velocity.y / speed) * minSpeed;
+                }
+
+
+                // Update position based on velocity
+                this.position.x += this.velocity.x;
+                this.position.y += this.velocity.y;
+
+                // Reset acceleration for the next frame
+                this.acceleration = { x: 0, y: 0 };
+            }
+
+            // Apply flocking rules: alignment, cohesion, separation
+            applyFlockingBehaviors(flock) {
+                let avgVelocity = { x: 0, y: 0 };
+                let avgPosition = { x: 0, y: 0 };
+                let separation = { x: 0, y: 0 };
+                let neighbors = 0;
+
+                for (let other of flock) {
+                    if (other === this) continue; // Skip self
+
+                    const dx = other.position.x - this.position.x;
+                    const dy = other.position.y - this.position.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    // Check if the other bird is within perception radius
+                    if (distance < perceptionRadius) {
+                        // Alignment: Steer towards the average heading of local flockmates
+                        avgVelocity.x += other.velocity.x;
+                        avgVelocity.y += other.velocity.y;
+
+                        // Cohesion: Steer to move toward the average position of local flockmates
+                        avgPosition.x += other.position.x;
+                        avgPosition.y += other.position.y;
+
+                        // Separation: Steer to avoid crowding local flockmates
+                        if (distance < avoidanceRadius) {
+                            // Weight separation force more strongly when very close
+                            const closenessFactor = (avoidanceRadius - distance) / avoidanceRadius;
+                            separation.x -= (dx / (distance + 0.001)) * closenessFactor; // Avoid division by zero, use linear falloff
+                            separation.y -= (dy / (distance + 0.001)) * closenessFactor;
+                        }
+                        neighbors++;
+                    }
+                }
+
+                if (neighbors > 0) {
+                    // --- Alignment ---
+                    avgVelocity.x /= neighbors;
+                    avgVelocity.y /= neighbors;
+                    // Calculate steering force towards average velocity
+                    let steerAlignX = avgVelocity.x;
+                    let steerAlignY = avgVelocity.y;
+                    // Normalize steer vector
+                    const alignMag = Math.sqrt(steerAlignX**2 + steerAlignY**2);
+                    if (alignMag > 0) {
+                       steerAlignX = (steerAlignX / alignMag) * maxSpeed;
+                       steerAlignY = (steerAlignY / alignMag) * maxSpeed;
+                    }
+                    // Calculate final steering force (desired - current)
+                    steerAlignX -= this.velocity.x;
+                    steerAlignY -= this.velocity.y;
+                    // Apply force (scaled)
+                    this.acceleration.x += steerAlignX * alignmentForce;
+                    this.acceleration.y += steerAlignY * alignmentForce;
+
+
+                    // --- Cohesion ---
+                    avgPosition.x /= neighbors;
+                    avgPosition.y /= neighbors;
+                    // Calculate vector pointing from location to target
+                    let steerCohesionX = avgPosition.x - this.position.x;
+                    let steerCohesionY = avgPosition.y - this.position.y;
+                    // Normalize and scale to max speed
+                    const cohMag = Math.sqrt(steerCohesionX**2 + steerCohesionY**2);
+                     if (cohMag > 0) {
+                        steerCohesionX = (steerCohesionX / cohMag) * maxSpeed;
+                        steerCohesionY = (steerCohesionY / cohMag) * maxSpeed;
+                     }
+                    // Calculate final steering force (desired - current)
+                    steerCohesionX -= this.velocity.x;
+                    steerCohesionY -= this.velocity.y;
+                     // Apply force (scaled)
+                    this.acceleration.x += steerCohesionX * cohesionForce;
+                    this.acceleration.y += steerCohesionY * cohesionForce;
+
+
+                    // --- Separation ---
+                    // Calculate steering force away from neighbors
+                    let steerSepX = separation.x;
+                    let steerSepY = separation.y;
+                    // Normalize and scale
+                     const sepMag = Math.sqrt(steerSepX**2 + steerSepY**2);
+                    if (sepMag > 0) {
+                        steerSepX = (steerSepX / sepMag) * maxSpeed;
+                        steerSepY = (steerSepY / sepMag) * maxSpeed;
+                    }
+                     // Calculate final steering force (desired - current)
+                    steerSepX -= this.velocity.x;
+                    steerSepY -= this.velocity.y;
+                    // Apply force (scaled)
+                    this.acceleration.x += steerSepX * separationForce;
+                    this.acceleration.y += steerSepY * separationForce;
+                }
+            }
+
+             // Method to steer away from canvas edges
+            avoidEdges() {
+                if (this.position.x < edgeMargin) {
+                    this.acceleration.x += turnFactor;
+                } else if (this.position.x > canvas.width - edgeMargin) {
+                    this.acceleration.x -= turnFactor;
+                }
+                if (this.position.y < edgeMargin) {
+                    this.acceleration.y += turnFactor;
+                } else if (this.position.y > canvas.height - edgeMargin) {
+                    this.acceleration.y -= turnFactor;
+                }
+            }
+
+
+            // Method to draw the bird on the canvas
+            draw(ctx) {
+                const angle = Math.atan2(this.velocity.y, this.velocity.x);
+                const s = this.size; // Use the bird's individual size
+
+                ctx.save(); // Save current context state
+                ctx.translate(this.position.x, this.position.y); // Move origin to bird's position
+                ctx.rotate(angle); // Rotate context to bird's direction
+
+                // Draw bird shape (more detailed)
+                ctx.fillStyle = '#6b7280'; // Gray body color
+                ctx.strokeStyle = '#4b5563'; // Darker gray outline/wings
+                ctx.lineWidth = 1;
+
+                ctx.beginPath();
+                // Body shape (like a stretched teardrop)
+                ctx.moveTo(s * 0.8, 0); // Nose
+                ctx.quadraticCurveTo(s * 0.2, s * 0.4, -s * 0.8, s * 0.4); // Top curve to tail top
+                ctx.quadraticCurveTo(-s * 0.6, 0, -s * 0.8, -s * 0.4); // Tail indent
+                ctx.quadraticCurveTo(s * 0.2, -s * 0.4, s * 0.8, 0); // Bottom curve to nose
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Simple wing shape
+                ctx.fillStyle = '#4b5563'; // Darker wing color
+                ctx.beginPath();
+                ctx.moveTo(-s * 0.1, s * 0.1); // Wing root top
+                ctx.lineTo(-s * 0.5, s * 0.5); // Wing tip top
+                ctx.lineTo(-s * 0.4, s * 0.15); // Wing tip bottom trailing edge
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(-s * 0.1, -s * 0.1); // Wing root bottom
+                ctx.lineTo(-s * 0.5, -s * 0.5); // Wing tip bottom
+                ctx.lineTo(-s * 0.4, -s * 0.15); // Wing tip top trailing edge
+                ctx.closePath();
+                ctx.fill();
+
+
+                ctx.restore(); // Restore context state
+            }
+        }
+
+        // --- Setup Function ---
+        function setup() {
+            // Set canvas size to fill most of the window
+            canvas.width = window.innerWidth * 0.9;
+            canvas.height = window.innerHeight * 0.8;
+
+            // Clear existing birds
+            birds.length = 0;
+
+            // Create bird instances
+            for (let i = 0; i < numBirds; i++) {
+                birds.push(new Bird(Math.random() * canvas.width, Math.random() * canvas.height));
+            }
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update and draw each bird
+            birds.forEach(bird => {
+                bird.update(birds); // Pass the entire flock for behavior calculation
+                bird.draw(ctx);
+            });
+
+            // Request the next frame
+            requestAnimationFrame(animate);
+        }
+
+        // --- Event Listeners ---
+        // Resize canvas when window is resized
+        window.addEventListener('resize', setup);
+
+        // Handle bird count slider changes
+        const birdCountSlider = document.getElementById('birdCount');
+        const birdCountValueSpan = document.getElementById('birdCountValue');
+
+        birdCountSlider.addEventListener('input', (event) => {
+            numBirds = parseInt(event.target.value);
+            birdCountValueSpan.textContent = numBirds;
+            // Re-setup the simulation with the new number of birds
+            setup();
+        });
+
+
+        // --- Initial Setup and Start Animation ---
+        setup(); // Initial setup
+        animate(); // Start the animation loop
+
+    </script>
+
+</body>
+</html>
